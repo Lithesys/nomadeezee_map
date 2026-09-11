@@ -18,8 +18,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const auth = await requireAdmin();
   if (!auth.ok) return Response.json({ error: auth.reason }, { status: 401 });
   const { id } = await context.params;
-  const { data, error } = await auth.supabase.from("map_features").select("*").eq("id", id).single();
-  if (error) return Response.json({ error: "Feature not found" }, { status: 404 });
+  const { data, error } = await auth.supabase.rpc("get_map_feature_editor", { p_feature_id: id });
+  if (error || !data) return Response.json({ error: "Feature not found" }, { status: 404 });
   return Response.json({ feature: data });
 }
 

@@ -23,4 +23,6 @@ The Vietnam basemap is intended to be built from OpenStreetMap data using Planet
 
 ## Current checkpoint
 
-This checkpoint implements the release/database/API/pipeline foundation. The next increment should add the interactive vertex editor and feature search on top of the existing authenticated admin endpoints, then import the first Vietnam extract and benchmark the GitHub runner.
+This checkpoint implements the authenticated interactive editor foundation on top of the release/database/API model. `/admin` now provides a MapLibre canvas, searchable feature list, GeoJSON geometry overlay, draggable vertices, draggable label points, draft metadata editing, local geometry validation, and draft-save actions. The editor starts with a small Da Nang starter shape when creating the first feature so the interaction can be tested before a basemap extract is published.
+
+The next production increment is to import the first Vietnam extract, publish the initial PMTiles assets, and add revision-history and publish controls to the inspector. See [docs/admin-editor.md](docs/admin-editor.md) for the editor workflow and API contract.
