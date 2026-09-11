@@ -5,6 +5,7 @@ coverage/
 *.tsbuildinfo
 .env*
 !.env.example
+!env.github.example
 data/
 *.pmtiles
 *.mbtiles

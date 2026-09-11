@@ -31,6 +31,8 @@ Set these Vercel server variables to enable the one-click dispatch: `GITHUB_TOKE
 
 Set these GitHub Actions secrets for a real build: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MAP_ACTOR_ID`, `VIETNAM_OSM_PBF_URL`, `WORLD_GEOJSON_URL`, `GLYPHS_ARCHIVE_URL`, `VIETNAM_OSM_PBF_SHA256`, `WORLD_GEOJSON_SHA256`, `GLYPHS_ARCHIVE_SHA256`, `TILES_BASE_URL`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `CLOUDFLARE_ACCOUNT_ID`. The workflow verifies all three checksums before touching PostGIS or R2.
 
+Use the tracked [`env.github.example`](../env.github.example) file as the setup checklist. It contains placeholders only; add the real values through GitHub repository settings, not in the repository.
+
 `WORLD_GEOJSON_URL` must provide a `FeatureCollection` whose every feature has `properties.layer` (or `source_layer`) and includes `land`, `water`, and `boundary`. The builder emits those as separate source layers so the MapLibre style can address them correctly. `GLYPHS_ARCHIVE_URL` must be a tar.gz containing `Be Vietnam Pro Regular/0-255.pbf` and the remaining ranges.
 
 ## First production checklist
