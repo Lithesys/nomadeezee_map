@@ -17,8 +17,12 @@ for (const asset of ["world.pmtiles", "vietnam.pmtiles", "geo.pmtiles"]) {
 
 const stylePath = path.resolve("data/style.json");
 try {
-  const style = JSON.parse(await readFile(stylePath, "utf8")) as { version?: number; sources?: Record<string, unknown> };
+  const style = JSON.parse(await readFile(stylePath, "utf8")) as { version?: number; sources?: Record<string, unknown>; layers?: Array<{ source?: string; "source-layer"?: string }> };
   if (style.version !== 8 || !style.sources?.nomadeezee_geo) throw new Error("style.json is not a MapLibre v8 style with nomadeezee_geo");
+  const sourceLayers = new Set((style.layers ?? []).filter((layer) => layer.source === "nomadeezee_geo").map((layer) => layer["source-layer"]));
+  for (const requiredLayer of ["boundaries", "labels"]) {
+    if (!sourceLayers.has(requiredLayer)) throw new Error(`style.json is missing the ${requiredLayer} custom layer`);
+  }
 } catch (error) {
   if (error instanceof SyntaxError) throw new Error("style.json is not valid JSON");
   throw error;

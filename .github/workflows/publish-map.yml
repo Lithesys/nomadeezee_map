@@ -42,10 +42,33 @@ jobs:
         env:
           OSM_PBF_URL: ${{ secrets.VIETNAM_OSM_PBF_URL }}
           WORLD_GEOJSON_URL: ${{ secrets.WORLD_GEOJSON_URL }}
+          GLYPHS_ARCHIVE_URL: ${{ secrets.GLYPHS_ARCHIVE_URL }}
+          OSM_PBF_SHA256: ${{ secrets.VIETNAM_OSM_PBF_SHA256 }}
+          WORLD_GEOJSON_SHA256: ${{ secrets.WORLD_GEOJSON_SHA256 }}
+          GLYPHS_ARCHIVE_SHA256: ${{ secrets.GLYPHS_ARCHIVE_SHA256 }}
         run: |
           mkdir -p data
+          test -n "$OSM_PBF_URL"
+          test -n "$WORLD_GEOJSON_URL"
+          test -n "$GLYPHS_ARCHIVE_URL"
+          test -n "$OSM_PBF_SHA256"
+          test -n "$WORLD_GEOJSON_SHA256"
+          test -n "$GLYPHS_ARCHIVE_SHA256"
           curl --fail --location --retry 3 "$OSM_PBF_URL" --output data/vietnam.osm.pbf
           curl --fail --location --retry 3 "$WORLD_GEOJSON_URL" --output data/world.geojson
+          curl --fail --location --retry 3 "$GLYPHS_ARCHIVE_URL" --output /tmp/nomadeezee-glyphs.tar.gz
+          echo "$OSM_PBF_SHA256  data/vietnam.osm.pbf" | sha256sum --check --status
+          echo "$WORLD_GEOJSON_SHA256  data/world.geojson" | sha256sum --check --status
+          echo "$GLYPHS_ARCHIVE_SHA256  /tmp/nomadeezee-glyphs.tar.gz" | sha256sum --check --status
+          mkdir -p data/fonts
+          tar --extract --gzip --file /tmp/nomadeezee-glyphs.tar.gz --directory data/fonts
+          test -f "data/fonts/Be Vietnam Pro Regular/0-255.pbf"
+      - name: Claim publish job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: npx tsx scripts/start-release.ts
       - name: Export frozen geographic revision
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -59,6 +82,8 @@ jobs:
           RELEASE_KEY: ${{ inputs.release_key }}
           TIPPECANOE_IMAGE: nomadeezee-tippecanoe:2.79.0
         run: npm run build:tiles
+      - name: Stage glyph assets
+        run: cp -R data/fonts data/release/fonts
       - name: Write release style
         env:
           RELEASE_ID: ${{ inputs.release_id }}

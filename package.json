@@ -11,7 +11,8 @@
     "test": "vitest run",
     "export:geo": "tsx scripts/export-geo.ts",
     "build:tiles": "tsx scripts/build-tiles.ts",
-    "style:release": "tsx scripts/write-release-style.ts"
+    "style:release": "tsx scripts/write-release-style.ts",
+    "start:release": "tsx scripts/start-release.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

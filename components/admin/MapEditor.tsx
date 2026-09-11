@@ -26,6 +26,7 @@ type MapFeature = {
   label_priority: number;
   status: "draft" | "published" | "archived";
   version: number;
+  latest_revision_id?: string | null;
   updated_at?: string;
 };
 
@@ -47,6 +48,27 @@ type FeatureSummary = Pick<
 >;
 
 type DragState = { kind: "vertex" | "label"; key?: string };
+type Revision = Pick<MapFeature, "id" | "name" | "name_vi" | "name_en" | "min_zoom" | "max_zoom" | "label_min_zoom" | "label_priority" | "version" | "status"> & {
+  feature_id: string;
+  created_by: string;
+  created_at: string;
+};
+type ReleaseSummary = {
+  id: string;
+  release_key: string;
+  generation: number;
+  status: "building" | "ready" | "active" | "failed" | "superseded";
+  created_at: string;
+  activated_at: string | null;
+  failure_reason: string | null;
+};
+type PublishJob = {
+  id: string;
+  release_id: string;
+  status: "queued" | "building" | "uploading" | "verifying" | "succeeded" | "failed" | "superseded";
+  error_message: string | null;
+  created_at: string;
+};
 
 const featureTypes: FeatureType[] = ["country", "province", "district", "city", "area", "island", "neighbourhood"];
 
@@ -78,21 +100,22 @@ const editorContextData: GeoJSON.FeatureCollection = {
 // the public map contract continues to use the versioned PMTiles style.
 const countryFilter = ["==", ["get", "kind"], "country"] as FilterSpecification;
 const cityFilter = ["==", ["get", "kind"], "city"] as FilterSpecification;
+const editorRasterUrl = process.env.NEXT_PUBLIC_MAP_EDITOR_RASTER_URL?.trim();
 
 const editorBaseStyle: StyleSpecification = {
   version: 8 as const,
   name: "Nomadeezee editor context",
   sources: {
-    osm: {
+    ...(editorRasterUrl ? { osm: {
       type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tiles: [`${editorRasterUrl ?? "https://tile.openstreetmap.org"}/{z}/{x}/{y}.png`],
       tileSize: 256,
       attribution: "© OpenStreetMap contributors",
-    },
+    } } : {}),
     context: { type: "geojson" as const, data: editorContextData },
   },
   layers: [
-    { id: "osm-context", type: "raster" as const, source: "osm" },
+    ...(editorRasterUrl ? [{ id: "osm-context", type: "raster" as const, source: "osm" }] : []),
     { id: "editor-context-fill", type: "fill" as const, source: "context", filter: countryFilter, paint: { "fill-color": "#e7eee7", "fill-opacity": 0.48 } },
     { id: "editor-context-outline", type: "line" as const, source: "context", filter: countryFilter, paint: { "line-color": "#718b80", "line-width": 1.5 } },
     { id: "editor-context-cities", type: "circle" as const, source: "context", filter: cityFilter, paint: { "circle-radius": 4, "circle-color": "#bd553b", "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } },
@@ -247,10 +270,20 @@ export default function MapEditor() {
   const [query, setQuery] = useState("");
   const [loadingFeatures, setLoadingFeatures] = useState(true);
   const [loadingFeature, setLoadingFeature] = useState(false);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [loadingRevisions, setLoadingRevisions] = useState(false);
+  const [releases, setReleases] = useState<ReleaseSummary[]>([]);
+  const [publishJobs, setPublishJobs] = useState<PublishJob[]>([]);
+  const [activeReleaseId, setActiveReleaseId] = useState<string | null>(null);
+  const [releaseGeneration, setReleaseGeneration] = useState(0);
+  const [loadingReleases, setLoadingReleases] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [dispatchingJob, setDispatchingJob] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapError, setMapError] = useState<string | null>(editorRasterUrl ? null : "Using the lightweight Vietnam editing context until the versioned PMTiles basemap is published.");
   const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
@@ -271,10 +304,52 @@ export default function MapEditor() {
     }
   }, []);
 
+  const loadReleases = useCallback(async () => {
+    setLoadingReleases(true);
+    try {
+      const [releaseResponse, jobsResponse] = await Promise.all([
+        fetch("/api/admin/releases", { cache: "no-store" }),
+        fetch("/api/admin/publish-jobs", { cache: "no-store" }),
+      ]);
+      const releaseBody = (await releaseResponse.json()) as { releases?: ReleaseSummary[]; activeReleaseId?: string | null; generation?: number; error?: string };
+      const jobsBody = (await jobsResponse.json()) as { jobs?: PublishJob[]; error?: string };
+      if (!releaseResponse.ok) throw new Error(releaseBody.error ?? "Could not load releases");
+      if (!jobsResponse.ok) throw new Error(jobsBody.error ?? "Could not load publish jobs");
+      setReleases(releaseBody.releases ?? []);
+      setActiveReleaseId(releaseBody.activeReleaseId ?? null);
+      setReleaseGeneration(Number(releaseBody.generation ?? 0));
+      setPublishJobs(jobsBody.jobs ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load releases");
+    } finally {
+      setLoadingReleases(false);
+    }
+  }, []);
+
+  const loadRevisions = useCallback(async (featureId: string) => {
+    setLoadingRevisions(true);
+    try {
+      const response = await fetch(`/api/admin/features/${featureId}/revisions`, { cache: "no-store" });
+      const body = (await response.json()) as { revisions?: Revision[]; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not load revisions");
+      setRevisions(body.revisions ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load revisions");
+      setRevisions([]);
+    } finally {
+      setLoadingRevisions(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => void loadFeatures(), 0);
     return () => window.clearTimeout(timer);
   }, [loadFeatures]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadReleases(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadReleases]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -415,6 +490,7 @@ export default function MapEditor() {
       setDraftFeature(next);
       draftRef.current = next;
       setDirty(false);
+      await loadRevisions(id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load feature");
     } finally {
@@ -427,6 +503,7 @@ export default function MapEditor() {
     setSelectedId(null);
     setSelectedVertex(null);
     setDraftFeature(next);
+    setRevisions([]);
     draftRef.current = next;
     setDirty(true);
     setMessage("Starter geometry is ready. Edit it on the map, then save the draft.");
@@ -468,8 +545,8 @@ export default function MapEditor() {
         body: JSON.stringify({
           feature_type: draftFeature.feature_type,
           name: draftFeature.name,
-          name_vi: draftFeature.name_vi || null,
-          name_en: draftFeature.name_en || null,
+          name_vi: draftFeature.name_vi ?? "",
+          name_en: draftFeature.name_en ?? "",
           slug: draftFeature.slug,
           geometry: draftFeature.geometry,
           label_point: draftFeature.label_point,
@@ -491,6 +568,105 @@ export default function MapEditor() {
       setMessage(error instanceof Error ? error.message : "Could not save draft");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function publishDraft() {
+    if (!draftFeature?.id) {
+      setMessage("Save the feature as a draft before publishing.");
+      return;
+    }
+    if (dirty) {
+      setMessage("Save the current edits before publishing a revision.");
+      return;
+    }
+    const revisionId = draftFeature.latest_revision_id ?? revisions[0]?.id;
+    if (!revisionId) {
+      setMessage("No revision is available to publish.");
+      return;
+    }
+
+    setPublishing(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/admin/features/${draftFeature.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revisionId }),
+      });
+      const body = (await response.json()) as { dispatch?: { status?: string; reason?: string }; jobId?: string; error?: string };
+      if (!response.ok) throw new Error(body.error ?? body.dispatch?.reason ?? "Could not queue publish");
+      await loadReleases();
+      const dispatchMessage = body.dispatch?.status === "dispatched"
+        ? "Release queued and GitHub tile build dispatched."
+        : "Release queued. Dispatch the GitHub workflow from the publish job panel.";
+      setMessage(`${dispatchMessage}${body.jobId ? ` Job ${body.jobId.slice(0, 8)}…` : ""}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not publish draft");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function restoreRevision(revisionId: string) {
+    if (!draftFeature?.id || dirty) {
+      setMessage("Save or discard current edits before restoring a revision.");
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/admin/features/${draftFeature.id}/revert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revisionId }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not restore revision");
+      await selectFeature(draftFeature.id);
+      await loadFeatures();
+      setMessage("Revision restored as a new draft. Review it before publishing.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not restore revision");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function rollbackRelease(releaseId: string) {
+    if (releaseId === activeReleaseId) return;
+    setRollingBack(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/map/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ releaseId, expectedGeneration: releaseGeneration }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not roll back release");
+      await loadReleases();
+      setMessage("Production map rolled back. Existing drafts were not changed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not roll back release");
+    } finally {
+      setRollingBack(false);
+    }
+  }
+
+  async function dispatchJob(jobId: string) {
+    setDispatchingJob(jobId);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/admin/publish-jobs/${jobId}/dispatch`, { method: "POST" });
+      const body = (await response.json()) as { dispatch?: { status?: string; reason?: string }; error?: string };
+      if (!response.ok) throw new Error(body.error ?? body.dispatch?.reason ?? "Could not dispatch job");
+      await loadReleases();
+      setMessage(body.dispatch?.status === "dispatched" ? "GitHub tile build dispatched." : body.dispatch?.reason ?? "Job is queued for manual dispatch.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not dispatch job");
+    } finally {
+      setDispatchingJob(null);
     }
   }
 
@@ -562,6 +738,33 @@ export default function MapEditor() {
               </button>
             ))}
           </div>
+          <section className="release-panel" aria-label="Release pipeline">
+            <div className="sidebar-heading">
+              <div>
+                <h2>Release pipeline</h2>
+                <span className="muted">Production generation {releaseGeneration}</span>
+              </div>
+              <button className="editor-button editor-button-small" type="button" onClick={() => void loadReleases()} disabled={loadingReleases}>Refresh</button>
+            </div>
+            {loadingReleases ? <p className="muted release-empty">Loading release status…</p> : null}
+            {!loadingReleases && !releases.length ? <p className="muted release-empty">No PMTiles release has been published yet.</p> : null}
+            {releases.slice(0, 6).map((release) => {
+              const job = publishJobs.find((item) => item.release_id === release.id);
+              const canRollback = release.status === "superseded" && release.id !== activeReleaseId;
+              return (
+                <div className="release-row" key={release.id}>
+                  <div>
+                    <strong>{release.release_key}</strong>
+                    <span className="release-meta">gen {release.generation} · {release.status}{job ? ` · job ${job.status}` : ""}</span>
+                  </div>
+                  <div className="release-actions">
+                    {job && ["queued", "failed"].includes(job.status) ? <button className="editor-button editor-button-small" type="button" onClick={() => void dispatchJob(job.id)} disabled={dispatchingJob === job.id}>Dispatch</button> : null}
+                    {canRollback ? <button className="editor-button editor-button-small" type="button" onClick={() => void rollbackRelease(release.id)} disabled={rollingBack}>Rollback</button> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
         </aside>
 
         <div className="editor-map-panel">
@@ -599,10 +802,31 @@ export default function MapEditor() {
               </div>
               <div className="editor-actions">
                 <button className="editor-button editor-button-primary" type="button" onClick={() => void saveDraft()} disabled={saving}>{saving ? "Saving…" : "Save draft"}</button>
+                <button className="editor-button editor-button-publish" type="button" onClick={() => void publishDraft()} disabled={publishing || saving || dirty || !draftFeature.id}>{publishing ? "Queueing…" : "Publish revision"}</button>
                 <button className="editor-button" type="button" onClick={placeLabelPoint}>Place label point</button>
                 <div className="editor-action-row"><button className="editor-button" type="button" onClick={handleAddVertex}>Add vertex</button><button className="editor-button" type="button" onClick={handleRemoveVertex} disabled={!selectedVertex}>Remove vertex</button></div>
               </div>
               {message ? <p className="editor-message" role="status">{message}</p> : null}
+              <section className="revision-panel" aria-label="Revision history">
+                <div className="sidebar-heading">
+                  <div><h2>Revision history</h2><span className="muted">Immutable drafts for rollback-safe publishing</span></div>
+                  <button className="editor-button editor-button-small" type="button" onClick={() => void loadRevisions(draftFeature.id)} disabled={loadingRevisions}>Refresh</button>
+                </div>
+                {loadingRevisions ? <p className="muted release-empty">Loading revisions…</p> : null}
+                {!loadingRevisions && !revisions.length ? <p className="muted release-empty">No revisions yet.</p> : null}
+                {revisions.map((revision) => {
+                  const isCurrent = revision.id === draftFeature.latest_revision_id;
+                  return (
+                    <div className={`revision-row${isCurrent ? " is-current" : ""}`} key={revision.id}>
+                      <div>
+                        <strong>v{revision.version}{isCurrent ? " · current" : ""}</strong>
+                        <span className="release-meta">{revision.status} · {new Date(revision.created_at).toLocaleString()}</span>
+                      </div>
+                      {!isCurrent ? <button className="editor-button editor-button-small" type="button" onClick={() => void restoreRevision(revision.id)} disabled={saving || dirty}>Restore</button> : null}
+                    </div>
+                  );
+                })}
+              </section>
             </>
           ) : null}
         </aside>

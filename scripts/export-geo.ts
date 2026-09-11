@@ -46,8 +46,20 @@ const features = rows.flatMap((row) => {
     label_priority: revision.label_priority,
   };
   const output: Array<Record<string, unknown>> = [];
-  if (geometry) output.push({ type: "Feature", id: row.feature_id, geometry, properties: { ...properties, layer: "boundaries" } });
-  if (labelPoint) output.push({ type: "Feature", id: `${row.feature_id}-label`, geometry: labelPoint, properties: { ...properties, layer: "labels" } });
+  if (geometry) output.push({
+    type: "Feature",
+    id: row.feature_id,
+    geometry,
+    properties: { ...properties, layer: "boundaries" },
+    tippecanoe: { minzoom: Number(revision.min_zoom), maxzoom: Number(revision.max_zoom), layer: "boundaries" },
+  });
+  if (labelPoint) output.push({
+    type: "Feature",
+    id: `${row.feature_id}-label`,
+    geometry: labelPoint,
+    properties: { ...properties, layer: "labels" },
+    tippecanoe: { minzoom: Number(revision.label_min_zoom), maxzoom: Number(revision.max_zoom), layer: "labels" },
+  });
   return output;
 });
 

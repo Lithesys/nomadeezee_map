@@ -19,9 +19,19 @@ The editor never autosaves mouse movement. All changes remain local until the ad
 - `POST /api/admin/features` creates a feature and its initial revision through `create_map_feature_draft`.
 - `GET /api/admin/features/:id` returns server-serialized GeoJSON through `get_map_feature_editor`.
 - `PATCH /api/admin/features/:id` creates the next draft revision through `save_map_feature_draft`.
+- `POST /api/admin/features/:id/revert` restores a historical revision as a new draft revision.
+- `GET /api/admin/features/:id/revisions` lists immutable revision metadata.
+- `POST /api/admin/features/:id/publish` freezes the selected revision into a release and optionally dispatches GitHub Actions.
+- `GET /api/admin/releases` lists active, superseded, failed, and in-progress releases plus the production generation.
+- `GET /api/admin/publish-jobs` and `POST /api/admin/publish-jobs/:id/dispatch` expose/retry worker dispatch.
+- `POST /api/admin/map/rollback` moves the production pointer to a retained superseded release after a generation check.
 - `POST /api/admin/validate-geometry` checks finite EPSG:4326 coordinates before a save.
 
 The editor uses database functions for geometry conversion so PostGIS columns are never written directly from the browser and no service-role key is exposed to client code.
+
+## Revision and release workflow
+
+Save creates a new draft revision. **Publish revision** freezes that revision into a release snapshot; later edits cannot mutate the snapshot. If GitHub dispatch variables are configured, the button starts `publish-map.yml`; otherwise the release remains queued and the returned job inputs can be dispatched from GitHub. **Restore** never rewrites history: it copies an older revision into a new draft version. **Rollback** changes only the production release pointer and leaves editorial drafts untouched.
 
 ## Basemap readiness
 

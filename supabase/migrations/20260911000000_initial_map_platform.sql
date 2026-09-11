@@ -187,8 +187,8 @@ begin
   label_value := case when p_label_point is null then feature_row.label_point else extensions.st_setsrid(extensions.st_geomfromgeojson(p_label_point::text), 4326) end;
   if geometry_value is not null and not extensions.st_isvalid(geometry_value) then raise exception 'geometry is invalid'; end if;
   next_version := feature_row.version + 1;
-  insert into public.map_feature_revisions(feature_id, geometry, label_point, name, name_vi, name_en, min_zoom, max_zoom, label_min_zoom, label_priority, version, created_by)
-  values (p_feature_id, geometry_value, label_value, coalesce(p_name, feature_row.name), coalesce(p_name_vi, feature_row.name_vi), coalesce(p_name_en, feature_row.name_en), coalesce(p_min_zoom, feature_row.min_zoom), coalesce(p_max_zoom, feature_row.max_zoom), coalesce(p_label_min_zoom, feature_row.label_min_zoom), coalesce(p_label_priority, feature_row.label_priority), next_version, 'draft')
+  insert into public.map_feature_revisions(feature_id, geometry, label_point, name, name_vi, name_en, min_zoom, max_zoom, label_min_zoom, label_priority, version, status, created_by)
+  values (p_feature_id, geometry_value, label_value, coalesce(p_name, feature_row.name), coalesce(p_name_vi, feature_row.name_vi), coalesce(p_name_en, feature_row.name_en), coalesce(p_min_zoom, feature_row.min_zoom), coalesce(p_max_zoom, feature_row.max_zoom), coalesce(p_label_min_zoom, feature_row.label_min_zoom), coalesce(p_label_priority, feature_row.label_priority), next_version, 'draft', p_updated_by)
   returning id into revision_id;
   update public.map_features set geometry = geometry_value, label_point = label_value, name = coalesce(p_name, name), name_vi = coalesce(p_name_vi, name_vi), name_en = coalesce(p_name_en, name_en), min_zoom = coalesce(p_min_zoom, min_zoom), max_zoom = coalesce(p_max_zoom, max_zoom), label_min_zoom = coalesce(p_label_min_zoom, label_min_zoom), label_priority = coalesce(p_label_priority, label_priority), version = next_version, status = 'draft', updated_by = p_updated_by where id = p_feature_id;
   return jsonb_build_object('revisionId', revision_id, 'featureId', p_feature_id, 'version', next_version);

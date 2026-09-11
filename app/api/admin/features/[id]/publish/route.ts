@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { dispatchMapPublish } from "@/lib/map/github";
 import { requireAdmin } from "@/lib/supabase/server";
 
 const bodySchema = z.object({ revisionId: z.string().uuid() });
@@ -18,5 +19,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   });
   if (error) return Response.json({ error: error.message }, { status: 409 });
 
-  return Response.json(data, { status: 202 });
+  const job = data as { jobId?: string; releaseId?: string; releaseKey?: string; generation?: number } | null;
+  if (!job?.jobId || !job.releaseId || !job.releaseKey || typeof job.generation !== "number") {
+    return Response.json({ error: "Publish job was created without complete release metadata" }, { status: 502 });
+  }
+
+  try {
+    const dispatch = await dispatchMapPublish({
+      jobId: job.jobId,
+      releaseId: job.releaseId,
+      releaseKey: job.releaseKey,
+      expectedGeneration: job.generation - 1,
+    });
+    return Response.json({ ...job, dispatch }, { status: 202 });
+  } catch (dispatchError) {
+    return Response.json({
+      ...job,
+      dispatch: { status: "failed", reason: dispatchError instanceof Error ? dispatchError.message : "GitHub dispatch failed" },
+    }, { status: 502 });
+  }
 }
