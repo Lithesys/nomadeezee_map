@@ -25,4 +25,4 @@ The editor uses database functions for geometry conversion so PostGIS columns ar
 
 ## Basemap readiness
 
-The MapLibre canvas loads `/api/styles/plain.json` and registers the PMTiles protocol. If R2 does not yet contain the referenced release assets, the canvas still renders the editable overlay and displays a non-blocking notice that basemap tiles are not published. Publishing a Vietnam extract is a separate pipeline milestone.
+The public map contract remains `/api/styles/plain.json` and uses PMTiles releases. The admin canvas currently uses a small built-in Vietnam context plus an OpenStreetMap raster fallback so the editing surface remains usable before the first R2 release. It displays a non-blocking notice when the raster fallback cannot be reached. The built-in outline is an editing context only and must not be published as authoritative geography. Publishing a Vietnam extract is a separate pipeline milestone.
