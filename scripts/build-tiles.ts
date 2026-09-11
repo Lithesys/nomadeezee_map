@@ -56,12 +56,14 @@ async function prepareNamedLayers(input: string, outputDir: string, expectedLaye
     const filename = `${path.basename(input, path.extname(input))}-${name}.geojson`;
     const localPath = path.join(outputDir, filename);
     await writeFile(localPath, `${JSON.stringify({ type: "FeatureCollection", features })}\n`, "utf8");
-    layers.push({ name, localPath, containerPath: `/data/release/${filename}` });
+    layers.push({ name, localPath, containerPath: `/data/.tile-inputs/${filename}` });
   }
   return layers;
 }
 
-const preparedInputDir = path.join(releaseDir, "inputs");
+// Keep generated GeoJSON intermediates outside the upload prefix. Only the
+// immutable PMTiles and staged fonts should be copied to R2.
+const preparedInputDir = path.join(dataDir, ".tile-inputs");
 await mkdir(preparedInputDir, { recursive: true });
 const geoLayers = await prepareNamedLayers(geo, preparedInputDir, ["boundaries", "labels"]);
 const worldLayers = await prepareNamedLayers(world, preparedInputDir, ["land", "water", "boundary"]);
