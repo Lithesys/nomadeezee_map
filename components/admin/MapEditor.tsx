@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { type GeoJSONSource } from "maplibre-gl";
+import maplibregl, { type FilterSpecification, type GeoJSONSource, type StyleSpecification } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 
 type FeatureType = "country" | "province" | "district" | "city" | "area" | "island" | "neighbourhood";
@@ -49,6 +49,55 @@ type FeatureSummary = Pick<
 type DragState = { kind: "vertex" | "label"; key?: string };
 
 const featureTypes: FeatureType[] = ["country", "province", "district", "city", "area", "island", "neighbourhood"];
+
+const editorContextData: GeoJSON.FeatureCollection = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      properties: { kind: "country", name: "Vietnam" },
+      geometry: {
+        type: "Polygon",
+        coordinates: [[
+          [102.14, 22.4], [103.3, 22.8], [104.5, 22.5], [105.4, 23.3], [106.7, 22.9],
+          [107.5, 21], [108.4, 20.3], [109.5, 18.5], [109.4, 17], [108.5, 16], [109.3, 15],
+          [109.5, 13.5], [109.2, 12], [108.7, 10.5], [108, 9.3], [106.5, 8.7], [105.5, 9],
+          [104.8, 10], [104.2, 10.8], [103.5, 11], [103, 12.5], [102.5, 14], [102, 16],
+          [102.2, 17.5], [101.8, 19], [102.3, 20.5], [102.14, 22.4],
+        ]],
+      },
+    },
+    { type: "Feature", properties: { kind: "city", name: "Hanoi" }, geometry: { type: "Point", coordinates: [105.85, 21.03] } },
+    { type: "Feature", properties: { kind: "city", name: "Da Nang" }, geometry: { type: "Point", coordinates: [108.2, 16.07] } },
+    { type: "Feature", properties: { kind: "city", name: "Ho Chi Minh City" }, geometry: { type: "Point", coordinates: [106.7, 10.78] } },
+  ],
+};
+
+// The editor needs a useful geographic context before the first PMTiles release
+// is published. This lightweight fallback is restricted to the admin canvas;
+// the public map contract continues to use the versioned PMTiles style.
+const countryFilter = ["==", ["get", "kind"], "country"] as FilterSpecification;
+const cityFilter = ["==", ["get", "kind"], "city"] as FilterSpecification;
+
+const editorBaseStyle: StyleSpecification = {
+  version: 8 as const,
+  name: "Nomadeezee editor context",
+  sources: {
+    osm: {
+      type: "raster" as const,
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+    context: { type: "geojson" as const, data: editorContextData },
+  },
+  layers: [
+    { id: "osm-context", type: "raster" as const, source: "osm" },
+    { id: "editor-context-fill", type: "fill" as const, source: "context", filter: countryFilter, paint: { "fill-color": "#e7eee7", "fill-opacity": 0.48 } },
+    { id: "editor-context-outline", type: "line" as const, source: "context", filter: countryFilter, paint: { "line-color": "#718b80", "line-width": 1.5 } },
+    { id: "editor-context-cities", type: "circle" as const, source: "context", filter: cityFilter, paint: { "circle-radius": 4, "circle-color": "#bd553b", "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } },
+  ],
+};
 
 const starterGeometry: MultiPolygonGeometry = {
   type: "MultiPolygon",
@@ -238,17 +287,17 @@ export default function MapEditor() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: "/api/styles/plain.json",
+      style: editorBaseStyle,
       center: [108.2, 16.1],
       zoom: 5,
-      attributionControl: false,
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     mapRef.current = map;
 
     const onMapError = (event: maplibregl.MapEventType["error"]) => {
       const error = event.error?.message ?? "Map data could not be loaded";
-      if (/pmtiles|404|range|fetch/i.test(error)) setMapError("Basemap tiles are not published yet. The editor overlay is still available.");
+      if (/404|range|fetch|tile/i.test(error)) setMapError("Using the temporary OpenStreetMap editor context until the versioned PMTiles basemap is published.");
     };
     map.on("error", onMapError);
 
