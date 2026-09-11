@@ -12,3 +12,4 @@ data/
 *.geojson
 
 .vercel
+.playwright-cli/
