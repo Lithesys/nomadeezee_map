@@ -1,0 +1,101 @@
+name: Publish map release
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "map_publish_jobs.id"
+        required: true
+        type: string
+      release_id:
+        description: "map_releases.id"
+        required: true
+        type: string
+      release_key:
+        description: "Immutable R2 release key"
+        required: true
+        type: string
+      expected_generation:
+        description: "map_channel.generation observed when the job was created"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22.15.0"
+  PLANETILER_IMAGE: "ghcr.io/onthegomap/planetiler:0.10.2"
+
+jobs:
+  build-and-activate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Download source inputs
+        env:
+          OSM_PBF_URL: ${{ secrets.VIETNAM_OSM_PBF_URL }}
+          WORLD_GEOJSON_URL: ${{ secrets.WORLD_GEOJSON_URL }}
+        run: |
+          mkdir -p data
+          curl --fail --location --retry 3 "$OSM_PBF_URL" --output data/vietnam.osm.pbf
+          curl --fail --location --retry 3 "$WORLD_GEOJSON_URL" --output data/world.geojson
+      - name: Export frozen geographic revision
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: npm run export:geo
+      - name: Build tile tools
+        run: docker build --file docker/tippecanoe.Dockerfile --tag nomadeezee-tippecanoe:2.79.0 .
+      - name: Build PMTiles
+        env:
+          RELEASE_KEY: ${{ inputs.release_key }}
+          TIPPECANOE_IMAGE: nomadeezee-tippecanoe:2.79.0
+        run: npm run build:tiles
+      - name: Write release style
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_KEY: ${{ inputs.release_key }}
+          EXPECTED_GENERATION: ${{ inputs.expected_generation }}
+          TILES_BASE_URL: ${{ secrets.TILES_BASE_URL }}
+        run: npm run style:release
+      - name: Upload immutable artifacts to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          RELEASE_KEY: ${{ inputs.release_key }}
+        run: |
+          aws s3 cp data/release/ "s3://$R2_BUCKET/releases/$RELEASE_KEY/" --recursive --endpoint-url "$R2_ENDPOINT" --no-progress
+          aws s3 cp data/style.json "s3://$R2_BUCKET/releases/$RELEASE_KEY/style.json" --endpoint-url "$R2_ENDPOINT" --cache-control "public,max-age=31536000,immutable" --content-type application/json
+      - name: Verify range reads and style
+        env:
+          TILES_BASE_URL: ${{ secrets.TILES_BASE_URL }}
+          RELEASE_KEY: ${{ inputs.release_key }}
+        run: npx tsx scripts/verify-release.ts
+      - name: Activate release
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          JOB_ID: ${{ inputs.job_id }}
+          EXPECTED_GENERATION: ${{ inputs.expected_generation }}
+          MAP_ACTOR_ID: ${{ secrets.MAP_ACTOR_ID }}
+        run: npx tsx scripts/activate-release.ts
+      - name: Mark failed publish job
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JOB_ID: ${{ inputs.job_id }}
+          ERROR_MESSAGE: "GitHub Actions map release workflow failed; inspect the run log"
+        run: npx tsx scripts/fail-release.ts

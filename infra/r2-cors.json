@@ -1,0 +1,14 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://nomadeezee.com",
+      "https://www.nomadeezee.com",
+      "https://map.nomadeezee.com",
+      "http://localhost:3000"
+    ],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["Range", "Origin", "Accept", "Content-Type"],
+    "ExposeHeaders": ["Accept-Ranges", "Content-Length", "Content-Range", "ETag"],
+    "MaxAgeSeconds": 86400
+  }
+]

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.env*
+!.env.example
+data/
+*.pmtiles
+*.mbtiles
+*.osm.pbf
+*.geojson
